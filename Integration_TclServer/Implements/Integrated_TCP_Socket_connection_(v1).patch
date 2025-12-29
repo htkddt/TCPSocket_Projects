@@ -1,0 +1,364 @@
+ src/sw/noc_dev/GUICore/dockresource.qrc            |  2 +
+ src/sw/noc_dev/GUICore/global.h                    |  4 ++
+ src/sw/noc_dev/prototype/Gui/mainwindow.cpp        | 49 ++++++++++++++++++++++
+ src/sw/noc_dev/prototype/Gui/mainwindow.h          |  8 +++-
+ src/sw/noc_dev/prototype/Gui/myconsole.cpp         | 34 +++++++++++++++
+ src/sw/noc_dev/prototype/Gui/myconsole.h           |  5 +++
+ src/sw/noc_dev/prototype/NocStudio.pro             |  2 +
+ src/sw/noc_dev/prototype/NocStudio.vcxproj         |  2 +
+ src/sw/noc_dev/prototype/NocStudio.vcxproj.filters |  6 +++
+ src/sw/noc_dev/prototype/Utils/nocstudioenums.h    |  2 +-
+ 10 files changed, 112 insertions(+), 2 deletions(-)
+
+diff --git a/src/sw/noc_dev/GUICore/dockresource.qrc b/src/sw/noc_dev/GUICore/dockresource.qrc
+index fd07c6a8065..030266b8fbb 100644
+--- a/src/sw/noc_dev/GUICore/dockresource.qrc
++++ b/src/sw/noc_dev/GUICore/dockresource.qrc
+@@ -240,6 +240,7 @@
+         <file>images/icons/cube31.png</file>
+         <file>images/icons/modules.png</file>
+         <file>images/icons/tcl.png</file>
++		<file>images/icons/socket.png</file>
+         <file>images/icons/question.png</file>
+         <file>images/icons/undo.png</file>
+         <file>images/icons/redo.png</file>
+@@ -266,5 +267,6 @@
+ 		<file>../noc_help_images/set_curve.png</file>
+ 		<file>../noc_help_images/bridge_portgroup_relative_pos.jpg</file>
+ 		<file>../noc_help_images/noc_injection_queue_depth.png</file>
++		<file>server.tcl</file>
+     </qresource>
+ </RCC>
+diff --git a/src/sw/noc_dev/GUICore/global.h b/src/sw/noc_dev/GUICore/global.h
+index 075b12f34b7..6935d781f35 100644
+--- a/src/sw/noc_dev/GUICore/global.h
++++ b/src/sw/noc_dev/GUICore/global.h
+@@ -896,6 +896,7 @@ const QString ICON_HIGHLIGHT                          = "://images/icons/highlig
+ const QString ICON_NEW_MESH_2                         = "://images/icons/new_Mesh_2.png";
+ const QString ICON_NEW_MESH                           = "://images/icons/new_Mesh.png";
+ const QString ICON_TCL                                = "://images/icons/tcl.png";
++const QString ICON_SOCKET                             = "://images/icons/socket.png";
+ const QString ICON_SOC                                = "://images/icons/soc.png";
+ const QString ICON_GRID                               = ":/images/icons/grid.png";
+ const QString ICON_LAYER                              = "://images/icons/layer.png";
+@@ -955,6 +956,9 @@ const QString ICON_OPEN_FILE                          = ":/images/icons/open.png
+ const QString ICON_SAVE_FILE                          = ":/images/icons/ipsave.png";
+ const QString IMAGE_HELP_ABOUT                        = ":/images/cfg_help.png";
+ 
++// define server.tcl file path
++const QString SERVER_TCL_FILE                         = ":/server.tcl";
++
+ /* Perf. Visualization commands group
+ • CMD_LIVESIM <on/off>: for opening/closing live tab
+ • CMD_MERGE <merge_name> stat <stat_id> <glname trans_name/chain_name>+: merge given trans/chains of given stat stat_id into one new group_lable named merg_name
+diff --git a/src/sw/noc_dev/prototype/Gui/mainwindow.cpp b/src/sw/noc_dev/prototype/Gui/mainwindow.cpp
+index 69cc383d1d8..cd4fe120443 100644
+--- a/src/sw/noc_dev/prototype/Gui/mainwindow.cpp
++++ b/src/sw/noc_dev/prototype/Gui/mainwindow.cpp
+@@ -382,6 +382,22 @@ MainWindow::MainWindow(NetSpeed::NocConsole* c, QWidget* parent)
+     if (toolbarAction) {
+         emit toolbarAction->triggered(true);
+     }
++
++    tclSocketServer = new TclSocketServer(c->get_tcl_interpreter().get());
++    if (tclSocketServer) {
++        QObject::connect(tclSocketServer, &TclSocketServer::messageReceived, console, &INIConsole::handlePast);
++        QString serverTempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/server_temp.tcl";
++
++        QFile inputServerFile(SERVER_TCL_FILE);
++        inputServerFile.open(QIODevice::ReadOnly);
++
++        QFile outputServerFile(serverTempPath);
++        outputServerFile.open(QIODevice::WriteOnly);
++        outputServerFile.write(inputServerFile.readAll());
++        outputServerFile.close();
++        tclSocketServer->init(serverTempPath);
++        QFile::remove(serverTempPath);
++    }
+ }
+ 
+ MainWindow::~MainWindow()
+@@ -862,6 +878,8 @@ void MainWindow::createActionsConnect() {
+ 
+     /* Highlight action */
+     connect(instrumentsNsActionMap[HL_CUSTOM], SIGNAL(triggered(bool)), this, SLOT(showCustomHLDialog()));
++
++    connect(instrumentsActMap[TCP_SOCKET], SIGNAL(toggled(bool)), this, SLOT(handleTCPSocketConnection(bool)));
+ }
+ 
+ void MainWindow::createActions()
+@@ -2837,9 +2855,17 @@ void MainWindow::createStatusBar()
+     sttBar->addPermanentWidget(currentView);
+     sttBar->addPermanentWidget(progressBar);
+ 
++    QToolButton* socketWidget = new QToolButton;
++    socketWidget->setIcon(QIcon(ICON_SOCKET));
++    socketWidget->setDefaultAction(instrumentsActMap[TCP_SOCKET]);
++    socketWidget->setToolTip("Start/Stop socket feature");
++    socketWidget->setStyleSheet("QToolButton { background-color: transparent; border:1px; width:20px; height:20px; margin:0 }");
++    sttBar->addPermanentWidget(socketWidget);
++
+     QToolButton* stopWidget = new QToolButton;
+     stopWidget->setIcon(QIcon(ICON_STOP));
+     stopWidget->setDefaultAction(instrumentsActMap[STOP]);
++    stopWidget->setToolTip("Stop process");
+     stopWidget->setStyleSheet("border:1px; width:20px; height:20px; margin:0");
+     sttBar->addPermanentWidget(stopWidget);
+ 
+@@ -8557,6 +8583,29 @@ void MainWindow::closeTabLint()
+     dockLintTab->hide();
+ }
+ 
++void MainWindow::handleTCPSocketConnection(bool state)
++{
++    if (state) {
++        if (!tclSocketServer) return;
++        if (!tclSocketServer->getTclIsStartedState()) {
++            if (!tclSocketServer->start()) {
++                cout << "Failed to start Tcl client." << endl;
++                instrumentsActMap[TCP_SOCKET]->setChecked(false);
++                return;
++            }
++        }
++        if (!tclSocketServer->setConnection()) {
++            cout << "Failed to start Tcl client." << endl;
++            instrumentsActMap[TCP_SOCKET]->setChecked(false);
++        } else {
++            tclSocketServer->sendMessageToClient("Connection is established successfully.\n");
++            instrumentsActMap[TCP_SOCKET]->setChecked(true);
++        }
++    } else {
++        tclSocketServer->stop();
++    }
++}
++
+ void MainWindow::showCustomHLDialog()
+ {
+     if (auto meshScene = nsWorkArea->getMeshViewScene()) {
+diff --git a/src/sw/noc_dev/prototype/Gui/mainwindow.h b/src/sw/noc_dev/prototype/Gui/mainwindow.h
+index 10d3c8c8319..5804a2c78fd 100644
+--- a/src/sw/noc_dev/prototype/Gui/mainwindow.h
++++ b/src/sw/noc_dev/prototype/Gui/mainwindow.h
+@@ -35,6 +35,7 @@
+ #include "View/NsWorkArea.h"
+ #include "View/NsChopview.h"
+ #include "View/NsNocViewScene.h"
++#include "TclSocketServer.h"
+ 
+ QT_BEGIN_NAMESPACE
+ class QAction;
+@@ -490,6 +491,8 @@ public:
+     //Refresh nocview(socview) scene instrument type and delete all CUSTOMIZE_ITEMS
+     void resetInstrument();
+ 
++    TclSocketServer* getTclSocketServer() const { return tclSocketServer; }
++
+     /**
+     * @brief get current maximum regbus layers value
+     * @return current maximum regbus layers
+@@ -691,7 +694,7 @@ private:
+     PropertyPanel* propPanel = nullptr; //! Property Panel
+     int tabIndexBeforeChanged = 0;
+     QMutex core_mutex; // lock this while reading from core data structures to prevent core from updating them
+-
++    TclSocketServer* tclSocketServer = nullptr;
+     bool socViewSearch = false;
+     /*
+      * Menu.
+@@ -833,6 +836,7 @@ private:
+     QMap<QString, QAction*> topoButtons;    
+     QString highlight;
+     QAction* showAllLayer = nullptr;
++
+ public:
+     QMap<QWidget*, QSharedPointer<StatTab>> getTabStatTabMap() { return tabStatTabMap; }
+     QMap<QWidget*, QMap<QString, QCustomPlot*>*> getTabPlotsMap() { return tabPlotsMap; }
+@@ -923,6 +927,7 @@ public slots:
+     void nocFinderButtonSlot();
+     void waiveFileLoad();
+     void handleKeyFromDock(QKeyEvent * event);
++    void handleTCPSocketConnection(bool);
+     inline void exitApplication() { QApplication::quit(); }
+ 
+ private slots:
+@@ -1348,6 +1353,7 @@ private:
+         {ANALYZE_POWER_PROFILES,             ActionParams(TEXT_ANALYZE_POWER,                   QIcon(ICON_ANALYZE_POWER),      TOOLTIP_ANALYZE_POWER)},
+         {ANALYZE_LINKS_HELP,                 ActionParams(TEXT_HELP)},
+         {STOP,                               ActionParams(QString(),                            QIcon(ICON_STOP))},
++        {TCP_SOCKET,                         ActionParams(QString(),                            QIcon(ICON_SOCKET),     QString(),      true)},
+         {CONT_DEFAULT,                       ActionParams(TEXT_CONTINUE_DEFAULT,                QIcon(ICON_CONTINUE),           TOOLTIP_CONN_DEFAULT)},
+         {CONT_HELP,                          ActionParams(TEXT_HELP)},
+         {GEN_IP,                             ActionParams(TEXT_GEN_NOC_IP,                      QIcon(ICON_GEN_RTL),            TOOLTIP_GEN_IP)},
+diff --git a/src/sw/noc_dev/prototype/Gui/myconsole.cpp b/src/sw/noc_dev/prototype/Gui/myconsole.cpp
+index 7da9c817656..72e762ab161 100644
+--- a/src/sw/noc_dev/prototype/Gui/myconsole.cpp
++++ b/src/sw/noc_dev/prototype/Gui/myconsole.cpp
+@@ -277,6 +277,19 @@ INIConsole::INIConsole(MainWindow * parent, NetSpeed::NocConsole * console)
+     handleWorkerConnection();
+ 
+     handleMyConsoleConnection();
++    connect(this, &INIConsole::triggerPast, this, [this]() {
++        if (strCmd != QString())
++            handlePasteEvent();
++    });
++    connect(this, &INIConsole::handlePast, this, [this](const QString& msg) {
++        strCmd = strCmd + '\n' + msg;
++        QTimer::singleShot(10, [&]() {
++            if (!runningCmd) {
++                handlePasteEvent();
++                runningCmd = true;
++            }
++        });
++    });
+ }
+ 
+ /*
+@@ -354,6 +367,13 @@ void INIConsole::printOutput(const QString& strOutput)
+         }
+     }
+     MainConsole::printOutput(strOutput);
++    if (runningCmd) {
++        if (auto tclSocketServer = mainWindow->getTclSocketServer()) {
++            if (!strOutput.isEmpty() && !strOutput.startsWith("Starting")) {
++                tclSocketServer->sendMessageToClient(strOutput);
++            }
++        }
++    }
+ }
+ 
+ void INIConsole::keyPressEvent(QKeyEvent * e)
+@@ -475,6 +495,10 @@ void INIConsole::handlePasteEvent()
+     qDebug() << "Start time: " << QTime::currentTime();
+ #endif
+     QString blkCmd = QApplication::clipboard()->text();
++    if (!strCmd.isNull()) {
++        blkCmd = strCmd;
++        strCmd = QString();
++    }
+     // get text cursor postion
+     int start = textCursor().selectionStart();
+     int end = textCursor().selectionEnd();
+@@ -895,6 +919,16 @@ bool INIConsole::calculatePointsStatTab(QSharedPointer<StatTab>st)
+  */
+ void INIConsole::complete(bool stop, QString cmd, bool res)
+ {
++    if (res && strCmd != QString()) {
++        emit triggerPast();
++        return;
++    }
++    if (runningCmd) {
++        runningCmd = false;
++        if (auto tclSocketServer = mainWindow->getTclSocketServer()) {
++            tclSocketServer->sendMessageToClient("Complete");
++        }
++    }
+     Q_ASSERT(mainWindow);
+     mainWindow->setIntenteractiveViews(true);
+     if (auto rbc = mainWindow->getInstrumentsActMap()[ADD_RBC]) rbc->setVisible(mainWindow->getMaximumRegbusLayers());
+diff --git a/src/sw/noc_dev/prototype/Gui/myconsole.h b/src/sw/noc_dev/prototype/Gui/myconsole.h
+index b13c8d8490f..2b35d8ef793 100644
+--- a/src/sw/noc_dev/prototype/Gui/myconsole.h
++++ b/src/sw/noc_dev/prototype/Gui/myconsole.h
+@@ -25,6 +25,7 @@
+ #include "NocProperty.h"
+ #include "global.h"
+ #include "genericconsole.h"
++#include "TclSocketServer.h"
+ 
+ 
+ void genStatsViewInBatchMode(NetSpeed::NocConsole *c);
+@@ -109,6 +110,8 @@ private:
+     bool isRunScriptByTerimal = false; // using to no save recent config embedded in file script when run by terminal
+ 
+ public:
++    QString strCmd = QString();
++    bool runningCmd = false;
+     bool readyExit = false;
+     int cmdCounter = 0; //! number of processed cmd
+     QString fileSourcePath;
+@@ -330,6 +333,8 @@ public slots:
+   void processLiveSimSlot(QString);
+ 
+ signals:
++    void handlePast(const QString& msg);
++    void triggerPast();
+     void printConsole(QString);
+     void processCommandSignal(QString);
+     void stateChangedLayerDisplaySignal(bool);
+diff --git a/src/sw/noc_dev/prototype/NocStudio.pro b/src/sw/noc_dev/prototype/NocStudio.pro
+index 80f1506fa9d..a605c0d9fed 100644
+--- a/src/sw/noc_dev/prototype/NocStudio.pro
++++ b/src/sw/noc_dev/prototype/NocStudio.pro
+@@ -141,6 +141,7 @@ FLEXLM {
+ 
+ SOURCES += main.cpp \
+     Gui/mainwindow.cpp \
++	Gui/TclSocketServer.cpp \
+     Utils/datasingleton.cpp \
+     Gui/myconsole.cpp \
+     Utils/worker.cpp \
+@@ -211,6 +212,7 @@ SOURCES += main.cpp \
+ HEADERS += \
+     Gui/mainwindow.h \
+     Gui/myconsole.h \
++	Gui/TclSocketServer.h \
+     Utils/nocstudioenums.h \
+     Utils/datasingleton.h \
+     Utils/worker.h \
+diff --git a/src/sw/noc_dev/prototype/NocStudio.vcxproj b/src/sw/noc_dev/prototype/NocStudio.vcxproj
+index 5154c582fad..a025c2d535f 100644
+--- a/src/sw/noc_dev/prototype/NocStudio.vcxproj
++++ b/src/sw/noc_dev/prototype/NocStudio.vcxproj
+@@ -198,6 +198,7 @@
+     <ClCompile Include="Gui\Dialogs\CustomHighLightDialog.cpp" />
+     <ClCompile Include="Gui\IniTxnItemModel.cpp" />
+     <ClCompile Include="Gui\LintDashboard.cpp" />
++    <ClCompile Include="Gui\TclSocketServer.cpp" />
+     <ClCompile Include="Gui\View\AddressrangeTable.cpp" />
+     <ClCompile Include="Modeling\NsAbstractInstrument.cpp" />
+     <ClCompile Include="Gui\Item\NsArrowItem.cpp" />
+@@ -266,6 +267,7 @@
+       <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</DynamicSource>
+       <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</DynamicSource>
+     </QtMoc>
++    <QtMoc Include="Gui\TclSocketServer.h" />
+     <ClInclude Include="Gui\View\AddressrangeTable.h" />
+     <ClInclude Include="INICommandHelp.h" />
+     <ClInclude Include="Gui\IniTxnItemModel.h" />
+diff --git a/src/sw/noc_dev/prototype/NocStudio.vcxproj.filters b/src/sw/noc_dev/prototype/NocStudio.vcxproj.filters
+index 0fcfc5991d8..74459df67c8 100644
+--- a/src/sw/noc_dev/prototype/NocStudio.vcxproj.filters
++++ b/src/sw/noc_dev/prototype/NocStudio.vcxproj.filters
+@@ -237,6 +237,9 @@
+     <ClCompile Include="release\moc_NsPlusItem.cpp">
+       <Filter>Source Files</Filter>
+     </ClCompile>
++    <ClCompile Include="Gui\TclSocketServer.cpp">
++      <Filter>Source Files</Filter>
++    </ClCompile>
+   </ItemGroup>
+   <ItemGroup>
+     <ClInclude Include="..\include\SysVerilogPEG.h" />
+@@ -306,6 +309,9 @@
+     <QtMoc Include="Gui\Item\NsRouter.h" />
+     <QtMoc Include="Gui\Item\NsMesh.h" />
+     <QtMoc Include="Gui\Item\NsPlusItem.h" />
++    <QtMoc Include="Gui\TclSocketServer.h">
++      <Filter>Header Files</Filter>
++    </QtMoc>
+   </ItemGroup>
+   <ItemGroup>
+     <ResourceCompile Include="netspeed.rc" />
+diff --git a/src/sw/noc_dev/prototype/Utils/nocstudioenums.h b/src/sw/noc_dev/prototype/Utils/nocstudioenums.h
+index 668f93acfcb..19b350f996b 100644
+--- a/src/sw/noc_dev/prototype/Utils/nocstudioenums.h
++++ b/src/sw/noc_dev/prototype/Utils/nocstudioenums.h
+@@ -197,7 +197,7 @@ typedef enum InstrumentsEnum {
+     DEL_UNIFIED_DOMAIN,
+     ADD_SPINE_GATING_REGION_IN_MENU,
+     DEL_SPINE_GATING_REGION,
+-
++    TCP_SOCKET,
+     ADD_POWER_DOMAIN_IN_MENU,
+     DEL_POWER_DOMAIN,
+     ADD_VOTAGE_DOMAIN_IN_MENU,
