@@ -1,5 +1,3 @@
-#C:\Program Files\Python314\python.exe
-
 from PyQt5.QtWidgets import QPushButton, QToolButton, QLabel, QLineEdit, QComboBox, QProgressBar, QScrollArea
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox
 from PyQt5.QtGui import QFont

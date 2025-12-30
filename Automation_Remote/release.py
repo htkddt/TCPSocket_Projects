@@ -1,5 +1,3 @@
-#C:\Program Files\Python314\python.exe
-
 import os
 import shutil
 import PyInstaller.__main__
