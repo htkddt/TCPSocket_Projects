@@ -4,3 +4,11 @@ __pycache__/
 
 # Cache files
 *.cache
+
+# App files
+*.exe
+**/*.exe
+
+# Hex files
+*.spec
+**/*.spec
